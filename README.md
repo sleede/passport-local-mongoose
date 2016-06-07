@@ -110,6 +110,8 @@ field to hold the username for example "email".
 * maxAttempts: specifies the maximum number of failed attempts allowed before preventing login. Default: Infinity.
 * passwordValidator: specifies your custom validation function for the password in the form 'function(password,cb)'. Default: validates non-empty passwords.
 * usernameQueryFields: specifies alternative fields of the model for identifying a user (e.g. email).
+* hashHistoryField: specifies the field hash history that holds the last N password used.
+* hashHistoryNumber: specifies number of hash history can be store.
 
 *Attention!* Changing any of the hashing options (saltlen, iterations or keylen) in a production environment will prevent that existing users to authenticate!
 
@@ -124,6 +126,7 @@ Override default error messages by setting options.errorMessages.
 * IncorrectUsernameError 'Password or username are incorrect'
 * MissingUsernameError 'No username was given'
 * UserExistsError 'A user with the given username is already registered'
+* PasswordIsUsedError 'Password is already used'
   
 ### Hash Algorithm
 Passport-Local Mongoose use the pbkdf2 algorithm of the node crypto library. 
@@ -140,6 +143,9 @@ For a complete example implementing a registration, login and logout see the
 
 #### setPassword(password, cb) 
 asynchronous method to set a user's password hash and salt
+
+#### changePassword(password, cb)
+asynchronous method to change a user's password hash and check this password whether be used
 
 #### authenticate(password, cb)
 asynchronous method to authenticate a user instance
@@ -168,6 +174,7 @@ To commit the changed document, remember to use Mongoose's `document.save()` aft
 * `NoSaltValueStored`: Occurs in case no salt value is stored in the MongoDB collection.
 * `AttemptTooSoonError`: Occurs if the option `limitAttempts` is set to true and a login attept occures while the user is still penalized.
 * `TooManyAttemptsError`: Returned when the user's account is locked due to too many failed login attempts.
+* `PasswordIsUsedError`: Returned when user change a password is already used.
 
 All those errors inherit from `AuthenticationError`, if you need a more general error class for checking.
 

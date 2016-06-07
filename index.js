@@ -41,6 +41,9 @@ module.exports = function(schema, options) {
     options.maxAttempts = options.maxAttempts || Infinity;
   }
 
+  options.hashHistoryField = options.hashHistoryField || 'hashHistory';
+  options.hashHistoryNumber = options.hashHistoryNumber || 5;
+
   options.errorMessages = options.errorMessages || {};
   options.errorMessages.MissingPasswordError = options.errorMessages.MissingPasswordError || 'No password was given';
   options.errorMessages.AttemptTooSoonError = options.errorMessages.AttemptTooSoonError || 'Account is currently locked. Try again later';
@@ -50,6 +53,7 @@ module.exports = function(schema, options) {
   options.errorMessages.IncorrectUsernameError = options.errorMessages.IncorrectUsernameError || 'Password or username are incorrect';
   options.errorMessages.MissingUsernameError = options.errorMessages.MissingUsernameError|| 'No username was given';
   options.errorMessages.UserExistsError = options.errorMessages.UserExistsError|| 'A user with the given username is already registered';
+  options.errorMessages.passwordIsUsedError = options.errorMessages.passwordIsUsedError || 'Password is already used';
 
   var pbkdf2 = function(password, salt, callback) {
     if (pbkdf2DigestSupport) {
@@ -70,6 +74,10 @@ module.exports = function(schema, options) {
   if (options.limitAttempts) {
     schemaFields[options.attemptsField] = {type: Number, default: 0};
     schemaFields[options.lastLoginField] = {type: Date, default: Date.now};
+  }
+
+  if (options.hashHistoryField) {
+    schemaFields[options.hashHistoryField] = {type: Array, select: false};
   }
 
   schema.add(schemaFields);
@@ -108,14 +116,61 @@ module.exports = function(schema, options) {
             return cb(pbkdf2Err);
           }
 
-          self.set(options.hashField, new Buffer(hashRaw, 'binary').toString(options.encoding));
+          var hash = new Buffer(hashRaw, 'binary').toString(options.encoding);
+          self.set(options.hashField, hash);
           self.set(options.saltField, salt);
+          self.set(options.hashHistoryField, [{hash: hash, hashChangedAt: new Date}]);
 
           cb(null, self);
         });
       });
     });
   };
+
+  schema.methods.changePassword = function(password, cb) {
+    if (!password) {
+      return cb(new errors.MissingPasswordError(options.errorMessages.MissingPasswordError));
+    }
+
+    var self = this;
+    self.constructor.findByUsername(self.get(options.usernameField), true, function(err, user) {
+      options.passwordValidator(password, function(err) {
+        if (err) {
+          return cb(err);
+        }
+
+        pbkdf2(password, user.get(options.saltField), function(pbkdf2Err, hashRaw) {
+          if (pbkdf2Err) {
+            return cb(pbkdf2Err);
+          }
+          var hash = new Buffer(hashRaw, 'binary').toString(options.encoding);
+          var hashHistory = user.get(options.hashHistoryField);
+          if (hashIsExsist(hashHistory, hash)) {
+            return cb(new errors.passwordIsUsedError(options.errorMessages.passwordIsUsedError));
+          }
+          hashHistory.push({hash: hash, hashChangedAt: new Date});
+          if (hashHistory.length > options.hashHistoryNumber) {
+            hashHistory.shift();
+          }
+
+          self.set(options.hashField, hash);
+          self.set(options.hashHistoryField, hashHistory);
+
+          cb(null, self);
+        });
+
+      });
+    });
+  }
+
+  function hashIsExsist(hashHistory, hash) {
+    for (var h of hashHistory) {
+      if (h.hash === hash) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   function authenticate(user, password, cb) {
     if (options.limitAttempts) {
@@ -283,7 +338,7 @@ module.exports = function(schema, options) {
     var query = this.findOne({$or: queryOrParameters});
 
     if (selectHashSaltFields) {
-      query.select('+' + options.hashField + " +" + options.saltField);
+      query.select('+' + options.hashField + " +" + options.saltField + " +" + options.hashHistoryField);
     }
 
     if (options.selectFields) {
