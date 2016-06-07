@@ -146,7 +146,7 @@ module.exports = function(schema, options) {
           var hash = new Buffer(hashRaw, 'binary').toString(options.encoding);
           var hashHistory = user.get(options.hashHistoryField);
           if (hashIsExsist(hashHistory, hash)) {
-            return cb(new errors.passwordIsUsedError(options.errorMessages.passwordIsUsedError));
+            return cb(new errors.PasswordIsUsedError(options.errorMessages.passwordIsUsedError));
           }
           hashHistory.push({hash: hash, hashChangedAt: new Date});
           if (hashHistory.length > options.hashHistoryNumber) {
