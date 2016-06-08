@@ -127,41 +127,51 @@ module.exports = function(schema, options) {
     });
   };
 
-  schema.methods.changePassword = function(password, cb) {
-    if (!password) {
+  schema.methods.changePassword = function(oldPassword, newPassword, cb) {
+    if (!oldPassword || !newPassword) {
       return cb(new errors.MissingPasswordError(options.errorMessages.MissingPasswordError));
     }
 
     var self = this;
     self.constructor.findByUsername(self.get(options.usernameField), true, function(err, user) {
-      options.passwordValidator(password, function(err) {
+      var salt = user.get(options.saltField);
+      pbkdf2(oldPassword, salt, function(err, hashRaw) {
         if (err) {
           return cb(err);
         }
+        if (scmp(new Buffer(hashRaw, 'binary').toString(options.encoding), user.get(options.hashField))) {
+          options.passwordValidator(newPassword, function(err) {
+            if (err) {
+              return cb(err);
+            }
 
-        pbkdf2(password, user.get(options.saltField), function(pbkdf2Err, hashRaw) {
-          if (pbkdf2Err) {
-            return cb(pbkdf2Err);
-          }
-          var hash = new Buffer(hashRaw, 'binary').toString(options.encoding);
-          var hashHistory = user.get(options.hashHistoryField);
-          if (hashIsExsist(hashHistory, hash)) {
-            return cb(new errors.PasswordIsUsedError(options.errorMessages.passwordIsUsedError));
-          }
-          hashHistory.push({hash: hash, hashChangedAt: new Date});
-          if (hashHistory.length > options.hashHistoryNumber) {
-            hashHistory.shift();
-          }
+            pbkdf2(newPassword, salt, function(pbkdf2Err, hashRaw) {
+              if (pbkdf2Err) {
+                return cb(pbkdf2Err);
+              }
+              var hash = new Buffer(hashRaw, 'binary').toString(options.encoding);
+              var hashHistory = user.get(options.hashHistoryField);
+              if (hashIsExsist(hashHistory, hash)) {
+                return cb(new errors.PasswordIsUsedError(options.errorMessages.passwordIsUsedError));
+              }
+              hashHistory.push({hash: hash, hashChangedAt: new Date});
+              if (hashHistory.length > options.hashHistoryNumber) {
+                hashHistory.shift();
+              }
 
-          self.set(options.hashField, hash);
-          self.set(options.hashHistoryField, hashHistory);
+              self.set(options.hashField, hash);
+              self.set(options.hashHistoryField, hashHistory);
 
-          cb(null, self);
-        });
+              cb(null, self);
+            });
 
+          });
+        } else {
+          return cb(new errors.IncorrectPasswordError(options.errorMessages.IncorrectPasswordError));
+        }
       });
     });
-  }
+  };
 
   function hashIsExsist(hashHistory, hash) {
     for (var h of hashHistory) {
